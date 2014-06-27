@@ -13,7 +13,6 @@
 
 #import "GBPing.h"
 
-#import "GBToolbox.h"
 
 #if TARGET_OS_EMBEDDED || TARGET_IPHONE_SIMULATOR
     #import <CFNetwork/CFNetwork.h>
@@ -35,6 +34,53 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
+#define l(frmt, ...)    NSLog(frmt, ##__VA_ARGS__)
+
+
+
+@interface NSTimer (GBToolbox)
+
+//blocks
++(NSTimer *)scheduledTimerWithTimeInterval:(NSTimeInterval)interval repeats:(BOOL)repeats withBlock:(void(^)(void))block;
++(NSTimer *)timerWithTimeInterval:(NSTimeInterval)interval repeats:(BOOL)repeats withBlock:(void(^)(void))block;
+
+@end
+
+@implementation NSTimer (GBToolbox)
+
+//blocks
++(NSTimer *)scheduledTimerWithTimeInterval:(NSTimeInterval)interval repeats:(BOOL)repeats withBlock:(void(^)(void))block {
+    return [self _timerFactory:interval repeats:repeats withBlock:block shouldSchedule:YES];
+}
+
++(NSTimer *)timerWithTimeInterval:(NSTimeInterval)interval repeats:(BOOL)repeats withBlock:(void(^)(void))block {
+    return [self _timerFactory:interval repeats:repeats withBlock:block shouldSchedule:NO];
+}
+
++(NSTimer *)_timerFactory:(NSTimeInterval)interval repeats:(BOOL)repeats withBlock:(void(^)(void))block shouldSchedule:(BOOL)shouldSchedule {
+    NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:[self instanceMethodSignatureForSelector:@selector(callBlock:)]];
+    NSTimer *timer = shouldSchedule ?
+    [NSTimer scheduledTimerWithTimeInterval:interval invocation:invocation repeats:repeats] :
+    [NSTimer timerWithTimeInterval:interval invocation:invocation repeats:repeats];
+    
+    [invocation setTarget:timer];
+    [invocation setSelector:@selector(callBlock:)];
+    
+    void(^copy)(void) = [block copy];
+    [invocation setArgument:&copy atIndex:2];
+    
+    return timer;
+}
+
+-(void)callBlock:(void(^)(void))block {
+    block();
+}
+
+@end
+
+
+
+
 @interface GBPing ()
 
 @property (assign, atomic) int                          socket;
@@ -48,7 +94,7 @@
 @property (strong, nonatomic) NSMutableDictionary       *pendingPings;
 @property (strong, nonatomic) NSMutableDictionary       *timeoutTimers;
 
-@property (assign, nonatomic) dispatch_queue_t          setupQueue;
+@property (strong, nonatomic) dispatch_queue_t          setupQueue;
 
 @property (assign, atomic) BOOL                         isStopped;
 
@@ -752,7 +798,6 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
     //clean up dispatch queue
     if (self.setupQueue) {
         //foo check that this actually works
-        dispatch_release(self.setupQueue);
         self.setupQueue = nil;
     }
     
